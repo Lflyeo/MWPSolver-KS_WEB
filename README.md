@@ -1,4 +1,4 @@
-## MWPSolver-KS
+## MWPSolver-KS_WEB
 
 增强型 LLMs 驱动的数学应用题求解系统（前端 Web 应用）。
 
