@@ -15,6 +15,7 @@ import AdminKnowledgeModels from "@/pages/admin/AdminKnowledgeModels";
 import AdminSemanticModels from "@/pages/admin/AdminSemanticModels";
 import AdminRecords from "@/pages/admin/AdminRecords";
 import AdminFavorites from "@/pages/admin/AdminFavorites";
+import AdminTest from "@/pages/admin/AdminTest";
 import { useContext } from "react";
 import { AuthContext } from "@/contexts/authContext";
 import { Layout } from "@/components/Layout";
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="semantic-models" element={<AdminSemanticModels />} />
         <Route path="records" element={<AdminRecords />} />
         <Route path="favorites" element={<AdminFavorites />} />
+        <Route path="test" element={<AdminTest />} />
       </Route>
       <Route path="/" element={<Layout />}>
         <Route path="/" element={<Home />} />

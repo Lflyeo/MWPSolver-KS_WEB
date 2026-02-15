@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, X, KeyRound, Link2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, KeyRound, Link2, Wifi, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   adminSolveModelsList,
@@ -8,6 +8,7 @@ import {
   adminSolveModelDelete,
   adminUniapiConfigGet,
   adminUniapiConfigUpdate,
+  adminTestSolve,
   type AdminSolveModelItem,
   type AdminUniapiConfig,
 } from '@/services/admin';
@@ -22,8 +23,12 @@ export default function AdminModels() {
   const [formSortOrder, setFormSortOrder] = useState(0);
   const [formEnabled, setFormEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [modelModalTest, setModelModalTest] = useState<'idle' | 'running' | 'ok' | 'fail'>('idle');
+  const [modelModalTestMsg, setModelModalTestMsg] = useState('');
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
+  const [configTest, setConfigTest] = useState<'idle' | 'running' | 'ok' | 'fail'>('idle');
+  const [configTestMsg, setConfigTestMsg] = useState('');
   const [configBaseUrl, setConfigBaseUrl] = useState('');
   const [configToken, setConfigToken] = useState('');
 
@@ -58,6 +63,8 @@ export default function AdminModels() {
     setFormDisplayName('');
     setFormSortOrder(list.length);
     setFormEnabled(true);
+    setModelModalTest('idle');
+    setModelModalTestMsg('');
     setModal('add');
   };
 
@@ -67,7 +74,32 @@ export default function AdminModels() {
     setFormDisplayName(m.display_name);
     setFormSortOrder(m.sort_order);
     setFormEnabled(m.enabled);
+    setModelModalTest('idle');
+    setModelModalTestMsg('');
     setModal('edit');
+  };
+
+  const handleModalTestConnect = async () => {
+    const mid = formModelId.trim();
+    if (!mid) {
+      toast.error('请先填写模型 ID');
+      return;
+    }
+    setModelModalTest('running');
+    setModelModalTestMsg('');
+    try {
+      const res = await adminTestSolve(mid);
+      if (res.errCode === 0 && res.data?.success) {
+        setModelModalTest('ok');
+        setModelModalTestMsg(res.data.durationMs != null ? `耗时 ${res.data.durationMs} ms` : '');
+      } else {
+        setModelModalTest('fail');
+        setModelModalTestMsg(res.errMsg || '连接失败');
+      }
+    } catch (err) {
+      setModelModalTest('fail');
+      setModelModalTestMsg(err instanceof Error ? err.message : '请求异常');
+    }
   };
 
   const handleSave = async () => {
@@ -132,6 +164,24 @@ export default function AdminModels() {
     }
   };
 
+  const handleTestConnect = async () => {
+    setConfigTest('running');
+    setConfigTestMsg('');
+    try {
+      const res = await adminTestSolve();
+      if (res.errCode === 0 && res.data?.success) {
+        setConfigTest('ok');
+        setConfigTestMsg(res.data.model ? `模型: ${res.data.model}，耗时 ${res.data.durationMs ?? 0} ms` : '');
+      } else {
+        setConfigTest('fail');
+        setConfigTestMsg(res.errMsg || '连接失败');
+      }
+    } catch (err) {
+      setConfigTest('fail');
+      setConfigTestMsg(err instanceof Error ? err.message : '请求异常');
+    }
+  };
+
   const handleDelete = (m: AdminSolveModelItem) => {
     if (!window.confirm(`确定删除模型「${m.display_name}」？前端解题页将不再显示该选项。`)) return;
     adminSolveModelDelete(m.id)
@@ -187,7 +237,25 @@ export default function AdminModels() {
                   仅管理员可见，用于调用解题大模型接口。请妥善保管，避免在前端或客户端代码中暴露。
                 </p>
               </div>
-              <div className="flex justify-end">
+              <div className="flex justify-end items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleTestConnect}
+                  disabled={configTest === 'running'}
+                  className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-50 inline-flex items-center gap-2"
+                >
+                  {configTest === 'running' ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      连接测试中...
+                    </>
+                  ) : (
+                    <>
+                      <Wifi size={16} />
+                      连接测试
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={handleSaveConfig}
@@ -196,6 +264,17 @@ export default function AdminModels() {
                 >
                   {configSaving ? '保存中...' : '保存接口配置'}
                 </button>
+                {configTest === 'ok' && (
+                  <span className="text-sm text-emerald-600 inline-flex items-center gap-1">
+                    <CheckCircle size={16} /> 连接正常
+                    {configTestMsg && <span className="text-slate-500">({configTestMsg})</span>}
+                  </span>
+                )}
+                {configTest === 'fail' && (
+                  <span className="text-sm text-red-600 inline-flex items-center gap-1">
+                    <XCircle size={16} /> {configTestMsg || '连接失败'}
+                  </span>
+                )}
               </div>
             </>
           )}
@@ -288,15 +367,45 @@ export default function AdminModels() {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">模型 ID</label>
-                <input
-                  type="text"
-                  value={formModelId}
-                  onChange={(e) => setFormModelId(e.target.value)}
-                  disabled={modal === 'edit'}
-                  placeholder="如 gpt-5.2"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 disabled:bg-slate-100"
-                />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="text"
+                    value={formModelId}
+                    onChange={(e) => setFormModelId(e.target.value)}
+                    disabled={modal === 'edit'}
+                    placeholder="如 gpt-5.2"
+                    className="flex-1 min-w-[140px] px-3 py-2 rounded-lg border border-slate-200 disabled:bg-slate-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleModalTestConnect}
+                    disabled={!formModelId.trim() || modelModalTest === 'running'}
+                    className="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-50 inline-flex items-center gap-1.5 shrink-0"
+                  >
+                    {modelModalTest === 'running' ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        测试中...
+                      </>
+                    ) : (
+                      <>
+                        <Wifi size={14} />
+                        连接测试
+                      </>
+                    )}
+                  </button>
+                </div>
                 {modal === 'edit' && <p className="text-xs text-slate-500 mt-1">模型 ID 不可修改</p>}
+                {modelModalTest === 'ok' && (
+                  <p className="text-xs text-emerald-600 mt-1.5 inline-flex items-center gap-1">
+                    <CheckCircle size={14} /> 连接正常 {modelModalTestMsg && `（${modelModalTestMsg}）`}
+                  </p>
+                )}
+                {modelModalTest === 'fail' && (
+                  <p className="text-xs text-red-600 mt-1.5 inline-flex items-center gap-1">
+                    <XCircle size={14} /> {modelModalTestMsg || '连接失败'}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">展示名称</label>

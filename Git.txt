@@ -30,5 +30,12 @@ cd 'd:\research\MWPSolver-KS\MWPSolver-KS_Web'# 初始化 git 仓库git init# �
 推送成功后，在浏览器中打开你的仓库页面，就能看到项目所有文件了。
 第五步：以后如何更新代码到 GitHub
 以后你对项目有修改时，在 PowerShell 里（同一个目录）按这三步：
-cd 'd:\research\MWPSolver-KS\MWPSolver-KS_Web'git status           # 看看有哪些改动（可选）git add .            # 或者针对单个文件：git add 某个文件git commit -m "描述本次改动"git push             # 推送到 GitHub（已经有 -u，所以直接 push 即可）
+cd 'd:\research\MWPSolver-KS\MWPSolver-KS_Web'
+git status           # 看看有哪些改动（可选）
+git add .            
+# 或者针对单个文件：
+git add 某个文件
+git commit -m "描述本次改动"
+git pull --rebase origin main
+git push             # 推送到 GitHub（已经有 -u，所以直接 push 即可）
 如果你愿意，你可以把你在 GitHub 上新建的仓库 URL 发给我，我可以帮你把上面几条命令按你的实际仓库地址改成一整段可以直接复制粘贴的命令。

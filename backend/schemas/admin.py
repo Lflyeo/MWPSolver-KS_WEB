@@ -50,25 +50,47 @@ class AdminUserPasswordUpdateRequest(BaseModel):
 
 
 class AdminUniapiConfig(BaseModel):
-    """解题大模型接口配置（可在管理后台调整）。"""
+    """解题 / 知识点 / 语义 三套接口配置（可在管理后台分别调整）。"""
 
-    base_url: str = Field(..., max_length=512, description="UniAPI 接口基础地址，如 https://api.uniapi.io")
-    token: str = Field(..., max_length=512, description="UniAPI 接口密钥 Token")
-    # 下列三个字段均为可选，不填写时后端会回退到环境变量或默认解题模型
+    # 解题模型 API（主配置）
+    base_url: str = Field(..., max_length=512, description="解题模型 UniAPI 基础地址")
+    token: str = Field(..., max_length=512, description="解题模型 UniAPI Token")
     model: Optional[str] = Field(
         default=None,
         max_length=128,
-        description="默认解题模型 ID（对应 UNIAPI_MODEL），为空时使用后端默认值",
+        description="默认解题模型 ID（UNIAPI_MODEL），为空时使用后端默认值",
+    )
+    # 知识点识别模型 API（独立配置，为空则调用时回退到解题的 base_url/token）
+    base_url_knowledge: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="知识点识别模型 API 基础地址，为空则使用解题配置",
+    )
+    token_knowledge: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="知识点识别模型 API Token，为空则使用解题配置",
     )
     model_knowledge: Optional[str] = Field(
         default=None,
         max_length=128,
-        description="知识点识别模型 ID（对应 UNIAPI_MODEL_KNOWLEDGE），为空时与解题模型一致",
+        description="知识点识别模型 ID（UNIAPI_MODEL_KNOWLEDGE），为空时与解题模型一致",
+    )
+    # 语义情境识别模型 API（独立配置，为空则回退到解题的 base_url/token）
+    base_url_semantic: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="语义情境模型 API 基础地址，为空则使用解题配置",
+    )
+    token_semantic: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="语义情境模型 API Token，为空则使用解题配置",
     )
     model_semantic: Optional[str] = Field(
         default=None,
         max_length=128,
-        description="语义情境识别模型 ID（对应 UNIAPI_MODEL_SEMANTIC），为空时与解题模型一致",
+        description="语义情境识别模型 ID（UNIAPI_MODEL_SEMANTIC），为空时与解题模型一致",
     )
 
 
@@ -79,11 +101,16 @@ class AdminUniapiConfigResponse(BaseModel):
 
 
 class AdminUniapiConfigUpdateRequest(BaseModel):
-    base_url: Optional[str] = Field(None, max_length=512, description="UniAPI 接口基础地址")
-    token: Optional[str] = Field(None, max_length=512, description="UniAPI 接口密钥 Token")
-    # 若为 None 表示“不修改该字段”；若为 ""（空字符串）表示清空数据库配置，回退到环境变量/默认值
+    """仅传需要更新的字段；None 表示不修改，空字符串表示清空该配置（回退到解题/环境变量）。"""
+
+    base_url: Optional[str] = Field(None, max_length=512, description="解题模型 API 基础地址")
+    token: Optional[str] = Field(None, max_length=512, description="解题模型 API Token")
     model: Optional[str] = Field(None, max_length=128, description="默认解题模型 ID")
+    base_url_knowledge: Optional[str] = Field(None, max_length=512, description="知识点模型 API 基础地址")
+    token_knowledge: Optional[str] = Field(None, max_length=512, description="知识点模型 API Token")
     model_knowledge: Optional[str] = Field(None, max_length=128, description="知识点识别模型 ID")
+    base_url_semantic: Optional[str] = Field(None, max_length=512, description="语义情境模型 API 基础地址")
+    token_semantic: Optional[str] = Field(None, max_length=512, description="语义情境模型 API Token")
     model_semantic: Optional[str] = Field(None, max_length=128, description="语义情境识别模型 ID")
 
 

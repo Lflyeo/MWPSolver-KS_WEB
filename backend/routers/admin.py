@@ -2,12 +2,16 @@
 管理员端：用户管理、解题模型管理。
 认证方式：请求头 X-Admin-Token 或 Authorization: Bearer <ADMIN_SECRET>，与 config.ADMIN_SECRET 一致即通过。
 """
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
 from typing import Optional
 from pathlib import Path
 import uuid
+
+import httpx
+from routers import solve as solve_router
 
 from config import settings
 from database import get_db
@@ -159,53 +163,64 @@ def admin_get_uniapi_config(
     db: Session = Depends(get_db),
     _: str = Depends(get_admin_token),
 ):
-    """获取解题大模型接口配置（Base URL、Token 以及各类模型 ID）。
-
-    - 优先从 system_settings 表读取（键：UNIAPI_BASE_URL、UNIAPI_TOKEN、UNIAPI_MODEL、
-      UNIAPI_MODEL_KNOWLEDGE、UNIAPI_MODEL_SEMANTIC）
-    - 若未配置则回退到环境变量/默认值
-    """
-    base_url = settings.UNIAPI_BASE_URL
-    token = settings.UNIAPI_TOKEN
-    model = settings.UNIAPI_MODEL or "gpt-5.2"
-    model_knowledge = settings.UNIAPI_MODEL_KNOWLEDGE or None
-    model_semantic = settings.UNIAPI_MODEL_SEMANTIC or None
+    """获取解题/知识点/语义三套接口配置。每套可独立配置 base_url、token、model。"""
+    keys = [
+        "UNIAPI_BASE_URL",
+        "UNIAPI_TOKEN",
+        "UNIAPI_MODEL",
+        "UNIAPI_BASE_URL_KNOWLEDGE",
+        "UNIAPI_TOKEN_KNOWLEDGE",
+        "UNIAPI_MODEL_KNOWLEDGE",
+        "UNIAPI_BASE_URL_SEMANTIC",
+        "UNIAPI_TOKEN_SEMANTIC",
+        "UNIAPI_MODEL_SEMANTIC",
+    ]
+    base_url = settings.UNIAPI_BASE_URL or ""
+    token = settings.UNIAPI_TOKEN or ""
+    model = (settings.UNIAPI_MODEL or "gpt-5.2").strip()
+    base_url_knowledge: Optional[str] = None
+    token_knowledge: Optional[str] = None
+    model_knowledge: Optional[str] = None
+    base_url_semantic: Optional[str] = None
+    token_semantic: Optional[str] = None
+    model_semantic: Optional[str] = None
     try:
-        rows = db.query(SystemSetting).filter(
-            SystemSetting.key.in_(
-                [
-                    "UNIAPI_BASE_URL",
-                    "UNIAPI_TOKEN",
-                    "UNIAPI_MODEL",
-                    "UNIAPI_MODEL_KNOWLEDGE",
-                    "UNIAPI_MODEL_SEMANTIC",
-                ]
-            )
-        ).all()
+        rows = db.query(SystemSetting).filter(SystemSetting.key.in_(keys)).all()
         for row in rows:
+            v = (row.value or "").strip() or None
             if row.key == "UNIAPI_BASE_URL" and row.value:
                 base_url = row.value.strip()
             elif row.key == "UNIAPI_TOKEN" and row.value:
                 token = row.value.strip()
             elif row.key == "UNIAPI_MODEL" and row.value:
                 model = row.value.strip()
+            elif row.key == "UNIAPI_BASE_URL_KNOWLEDGE":
+                base_url_knowledge = v
+            elif row.key == "UNIAPI_TOKEN_KNOWLEDGE":
+                token_knowledge = v
             elif row.key == "UNIAPI_MODEL_KNOWLEDGE":
-                # 允许为空字符串：表示“跟随解题模型”
-                model_knowledge = (row.value or "").strip() or None
+                model_knowledge = v
+            elif row.key == "UNIAPI_BASE_URL_SEMANTIC":
+                base_url_semantic = v
+            elif row.key == "UNIAPI_TOKEN_SEMANTIC":
+                token_semantic = v
             elif row.key == "UNIAPI_MODEL_SEMANTIC":
-                model_semantic = (row.value or "").strip() or None
+                model_semantic = v
     except Exception:
-        # 若表不存在或查询失败，则直接回退到环境变量，不影响接口使用
         pass
     if not (base_url and token):
         return AdminUniapiConfigResponse(
             errCode=400,
-            errMsg="尚未完整配置大模型接口（Base URL 或 Token 为空），请在此页保存设置或在环境变量中配置。",
+            errMsg="尚未完整配置解题模型接口（Base URL 或 Token 为空），请先在解题模型管理页保存。",
             data=AdminUniapiConfig(
                 base_url=base_url or "",
                 token=token or "",
                 model=model,
+                base_url_knowledge=base_url_knowledge,
+                token_knowledge=token_knowledge,
                 model_knowledge=model_knowledge,
+                base_url_semantic=base_url_semantic,
+                token_semantic=token_semantic,
                 model_semantic=model_semantic,
             ),
         )
@@ -216,7 +231,11 @@ def admin_get_uniapi_config(
             base_url=base_url,
             token=token,
             model=model,
+            base_url_knowledge=base_url_knowledge,
+            token_knowledge=token_knowledge,
             model_knowledge=model_knowledge,
+            base_url_semantic=base_url_semantic,
+            token_semantic=token_semantic,
             model_semantic=model_semantic,
         ),
     )
@@ -228,62 +247,42 @@ def admin_update_uniapi_config(
     db: Session = Depends(get_db),
     _: str = Depends(get_admin_token),
 ):
-    """更新解题大模型接口配置。仅保存在数据库中，优先级高于环境变量。
+    """更新接口配置。仅更新请求中传入的字段（非 None）；空字符串表示清空该键，回退到解题配置或环境变量。"""
+    def _set(key: str, value: str | None) -> None:
+        row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if value is None:
+            return
+        val = value.strip()
+        if row:
+            row.value = val
+        else:
+            db.add(SystemSetting(key=key, value=val))
 
-    - base_url/token 为空字符串会被当作实际值写入（不建议）
-    - model / model_knowledge / model_semantic：
-        - 为 None 表示“不修改该字段”
-        - 为空字符串 "" 表示清空数据库配置，回退到环境变量/默认解题模型
-    """
     try:
         if req.base_url is not None:
-            row = db.query(SystemSetting).filter(SystemSetting.key == "UNIAPI_BASE_URL").first()
-            value = req.base_url.strip()
-            if row:
-                row.value = value
-            else:
-                row = SystemSetting(key="UNIAPI_BASE_URL", value=value)
-                db.add(row)
+            _set("UNIAPI_BASE_URL", req.base_url)
         if req.token is not None:
-            row = db.query(SystemSetting).filter(SystemSetting.key == "UNIAPI_TOKEN").first()
-            value = req.token.strip()
-            if row:
-                row.value = value
-            else:
-                row = SystemSetting(key="UNIAPI_TOKEN", value=value)
-                db.add(row)
-        # 默认解题模型 UNIAPI_MODEL
+            _set("UNIAPI_TOKEN", req.token)
         if req.model is not None:
             row = db.query(SystemSetting).filter(SystemSetting.key == "UNIAPI_MODEL").first()
-            value = (req.model or "").strip()
-            if not value:
-                # 空字符串：删除数据库中的覆盖配置，回退到环境变量
+            val = (req.model or "").strip()
+            if not val:
                 if row:
                     db.delete(row)
             else:
-                if row:
-                    row.value = value
-                else:
-                    row = SystemSetting(key="UNIAPI_MODEL", value=value)
-                    db.add(row)
-        # 知识点识别模型 UNIAPI_MODEL_KNOWLEDGE
+                _set("UNIAPI_MODEL", req.model)
+        if req.base_url_knowledge is not None:
+            _set("UNIAPI_BASE_URL_KNOWLEDGE", req.base_url_knowledge or "")
+        if req.token_knowledge is not None:
+            _set("UNIAPI_TOKEN_KNOWLEDGE", req.token_knowledge or "")
         if req.model_knowledge is not None:
-            row = db.query(SystemSetting).filter(SystemSetting.key == "UNIAPI_MODEL_KNOWLEDGE").first()
-            value = (req.model_knowledge or "").strip()
-            if row:
-                row.value = value
-            else:
-                row = SystemSetting(key="UNIAPI_MODEL_KNOWLEDGE", value=value)
-                db.add(row)
-        # 语义情境识别模型 UNIAPI_MODEL_SEMANTIC
+            _set("UNIAPI_MODEL_KNOWLEDGE", req.model_knowledge or "")
+        if req.base_url_semantic is not None:
+            _set("UNIAPI_BASE_URL_SEMANTIC", req.base_url_semantic or "")
+        if req.token_semantic is not None:
+            _set("UNIAPI_TOKEN_SEMANTIC", req.token_semantic or "")
         if req.model_semantic is not None:
-            row = db.query(SystemSetting).filter(SystemSetting.key == "UNIAPI_MODEL_SEMANTIC").first()
-            value = (req.model_semantic or "").strip()
-            if row:
-                row.value = value
-            else:
-                row = SystemSetting(key="UNIAPI_MODEL_SEMANTIC", value=value)
-                db.add(row)
+            _set("UNIAPI_MODEL_SEMANTIC", req.model_semantic or "")
         db.commit()
         return AdminCommonResponse(errCode=0, errMsg="success", data={})
     except Exception as e:
@@ -672,3 +671,93 @@ def admin_delete_favorite(
     except Exception as e:
         db.rollback()
         return AdminCommonResponse(errCode=500, errMsg=f"删除失败: {str(e)}", data={})
+
+
+# ---------- 模型 API 连接测试（管理员专用） ----------
+
+
+def _minimal_solve_model_id(db: Session) -> str:
+    """返回当前使用的解题模型 ID（用于连接测试）。"""
+    row = db.query(SolveModel).filter(SolveModel.enabled == True).order_by(SolveModel.sort_order, SolveModel.id).first()
+    if row and row.model_id:
+        return row.model_id.strip()
+    return (settings.UNIAPI_MODEL or "gpt-5.2").strip()
+
+
+@router.get("/test/solve", response_model=AdminCommonResponse)
+async def admin_test_solve(
+    model_id: Optional[str] = Query(None, description="指定要测试的模型 ID，不传则使用当前默认解题模型"),
+    db: Session = Depends(get_db),
+    _: str = Depends(get_admin_token),
+):
+    """测试解题模型 API 连接：向指定或当前默认解题模型发送最小请求。"""
+    base_url, token = solve_router._get_uniapi_base_and_token(db)
+    if not (token and token.strip()):
+        return AdminCommonResponse(errCode=400, errMsg="未配置 UniAPI 地址或 Token", data={"success": False})
+    use_model_id = (model_id or "").strip() or _minimal_solve_model_id(db)
+    messages = [
+        {"role": "developer", "content": "You are a helpful assistant. Reply only with the number 2."},
+        {"role": "user", "content": "1+1=?"},
+    ]
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await solve_router._call_uniapi(client, use_model_id, messages, base_url, token)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        return AdminCommonResponse(errCode=0, errMsg="success", data={"success": True, "durationMs": duration_ms, "model": use_model_id})
+    except httpx.TimeoutException:
+        return AdminCommonResponse(errCode=500, errMsg="请求超时", data={"success": False})
+    except Exception as e:
+        return AdminCommonResponse(errCode=500, errMsg=str(e), data={"success": False})
+
+
+@router.get("/test/knowledge", response_model=AdminCommonResponse)
+async def admin_test_knowledge(
+    db: Session = Depends(get_db),
+    _: str = Depends(get_admin_token),
+):
+    """测试知识点识别模型 API 连接（使用知识点独立配置，未配置则回退解题配置）。"""
+    base_url, token = solve_router._get_uniapi_base_and_token_knowledge(db)
+    if not (token and token.strip()):
+        return AdminCommonResponse(errCode=400, errMsg="未配置 UniAPI 地址或 Token", data={"success": False})
+    model_k, _ = solve_router._get_model_knowledge_and_semantic(db)
+    messages = [
+        {"role": "developer", "content": solve_router.KNOWLEDGE_SYSTEM},
+        {"role": "user", "content": "1+1=?"},
+    ]
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await solve_router._call_uniapi(client, model_k, messages, base_url, token)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        return AdminCommonResponse(errCode=0, errMsg="success", data={"success": True, "durationMs": duration_ms, "model": model_k})
+    except httpx.TimeoutException:
+        return AdminCommonResponse(errCode=500, errMsg="请求超时", data={"success": False})
+    except Exception as e:
+        return AdminCommonResponse(errCode=500, errMsg=str(e), data={"success": False})
+
+
+@router.get("/test/semantic", response_model=AdminCommonResponse)
+async def admin_test_semantic(
+    db: Session = Depends(get_db),
+    _: str = Depends(get_admin_token),
+):
+    """测试语义情境识别模型 API 连接（使用语义独立配置，未配置则回退解题配置）。"""
+    base_url, token = solve_router._get_uniapi_base_and_token_semantic(db)
+    if not (token and token.strip()):
+        return AdminCommonResponse(errCode=400, errMsg="未配置 UniAPI 地址或 Token", data={"success": False})
+    _, model_s = solve_router._get_model_knowledge_and_semantic(db)
+    messages = [
+        {"role": "developer", "content": solve_router.SEMANTIC_SYSTEM},
+        {"role": "user", "content": "1+1=?"},
+    ]
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await solve_router._call_uniapi(client, model_s, messages, base_url, token)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        return AdminCommonResponse(errCode=0, errMsg="success", data={"success": True, "durationMs": duration_ms, "model": model_s})
+    except httpx.TimeoutException:
+        return AdminCommonResponse(errCode=500, errMsg="请求超时", data={"success": False})
+    except Exception as e:
+        return AdminCommonResponse(errCode=500, errMsg=str(e), data={"success": False})

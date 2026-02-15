@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { Users, Brain, LogOut, Shield, History, Heart } from 'lucide-react';
+import { Users, Brain, LogOut, Shield, History, Heart, Wifi } from 'lucide-react';
 import { getAdminToken, clearAdminToken } from '@/services/admin';
 import { useEffect } from 'react';
 
@@ -90,6 +90,17 @@ export default function AdminLayout() {
           >
             <Heart size={18} />
             收藏记录管理
+          </NavLink>
+          <NavLink
+            to="/admin/test"
+            className={({ isActive }) =>
+              `flex items-center gap-2 px-3 py-2.5 rounded-lg mt-1 ${
+                isActive ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/50'
+              }`
+            }
+          >
+            <Wifi size={18} />
+            后端连接测试
           </NavLink>
         </nav>
         <div className="p-2 border-t border-slate-700">

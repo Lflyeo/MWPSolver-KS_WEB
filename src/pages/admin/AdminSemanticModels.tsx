@@ -1,11 +1,18 @@
 import { useState, useEffect } from 'react';
-import { KeyRound, Link2 } from 'lucide-react';
+import { KeyRound, Link2, Wifi, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { adminUniapiConfigGet, adminUniapiConfigUpdate, type AdminUniapiConfig } from '@/services/admin';
+import {
+  adminUniapiConfigGet,
+  adminUniapiConfigUpdate,
+  adminTestSemantic,
+  type AdminUniapiConfig,
+} from '@/services/admin';
 
 export default function AdminSemanticModels() {
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
+  const [configTest, setConfigTest] = useState<'idle' | 'running' | 'ok' | 'fail'>('idle');
+  const [configTestMsg, setConfigTestMsg] = useState('');
   const [semanticSaving, setSemanticSaving] = useState(false);
   const [configBaseUrl, setConfigBaseUrl] = useState('');
   const [configToken, setConfigToken] = useState('');
@@ -16,8 +23,8 @@ export default function AdminSemanticModels() {
     adminUniapiConfigGet()
       .then((res) => {
         const data = res.data as AdminUniapiConfig | null;
-        setConfigBaseUrl(data?.base_url ?? '');
-        setConfigToken(data?.token ?? '');
+        setConfigBaseUrl(data?.base_url_semantic ?? data?.base_url ?? '');
+        setConfigToken(data?.token_semantic ?? data?.token ?? '');
         setConfigModelSemantic(data?.model_semantic ?? '');
       })
       .catch((err) => toast.error(err?.message || '加载配置失败'))
@@ -29,17 +36,21 @@ export default function AdminSemanticModels() {
   }, []);
 
   const handleSaveApi = async () => {
-    if (!configBaseUrl.trim() || !configToken.trim()) {
-      toast.error('请填写完整的 API 地址和 Token');
+    if (configBaseUrl.trim() && !configToken.trim()) {
+      toast.error('填写了 API 地址时请同时填写 Token');
+      return;
+    }
+    if (!configBaseUrl.trim() && configToken.trim()) {
+      toast.error('填写了 Token 时请同时填写 API 地址');
       return;
     }
     setConfigSaving(true);
     try {
       await adminUniapiConfigUpdate({
-        base_url: configBaseUrl.trim(),
-        token: configToken.trim(),
+        base_url_semantic: configBaseUrl.trim() || '',
+        token_semantic: configToken.trim() || '',
       });
-      toast.success('API 配置已保存');
+      toast.success('语义情境模型 API 配置已保存');
       loadConfig();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存失败');
@@ -48,14 +59,31 @@ export default function AdminSemanticModels() {
     }
   };
 
+  const handleTestConnect = async () => {
+    setConfigTest('running');
+    setConfigTestMsg('');
+    try {
+      const res = await adminTestSemantic();
+      if (res.errCode === 0 && res.data?.success) {
+        setConfigTest('ok');
+        setConfigTestMsg(res.data.model ? `模型: ${res.data.model}，${res.data.durationMs ?? 0} ms` : '');
+      } else {
+        setConfigTest('fail');
+        setConfigTestMsg(res.errMsg || '连接失败');
+      }
+    } catch (err) {
+      setConfigTest('fail');
+      setConfigTestMsg(err instanceof Error ? err.message : '请求异常');
+    }
+  };
+
   const handleSaveSemanticModel = async () => {
     setSemanticSaving(true);
     try {
       await adminUniapiConfigUpdate({
-        // 空字符串表示“跟随解题模型/使用后端默认值”
         model_semantic: configModelSemantic.trim() || '',
       });
-      toast.success('语义情境识别模型已保存');
+      toast.success('语义情境识别模型 ID 已保存');
       loadConfig();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存失败');
@@ -75,7 +103,7 @@ export default function AdminSemanticModels() {
           <div>
             <div className="text-sm font-medium text-slate-800">模型接口</div>
             <div className="text-xs text-slate-500 mt-0.5">
-              在此配置用于语义情境识别调用的模型接口地址与 Token，保存后立即生效，无需重启服务。
+              独立配置语义情境识别模型的 API 地址与 Token，留空则使用解题模型配置。保存后立即生效。
             </div>
           </div>
         </div>
@@ -112,15 +140,44 @@ export default function AdminSemanticModels() {
                   仅管理员可见，用于调用模型接口。请妥善保管，避免在前端或客户端代码中暴露。
                 </p>
               </div>
-              <div className="flex justify-end">
+              <div className="flex justify-end items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleTestConnect}
+                  disabled={configTest === 'running'}
+                  className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 disabled:opacity-50 inline-flex items-center gap-2"
+                >
+                  {configTest === 'running' ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      连接测试中...
+                    </>
+                  ) : (
+                    <>
+                      <Wifi size={16} />
+                      连接测试
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={handleSaveApi}
                   disabled={configSaving}
                   className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
                 >
-                  {configSaving ? '保存中...' : '保存 API 配置'}
+                  {configSaving ? '保存中...' : '保存接口配置'}
                 </button>
+                {configTest === 'ok' && (
+                  <span className="text-sm text-emerald-600 inline-flex items-center gap-1">
+                    <CheckCircle size={16} /> 连接正常
+                    {configTestMsg && <span className="text-slate-500">({configTestMsg})</span>}
+                  </span>
+                )}
+                {configTest === 'fail' && (
+                  <span className="text-sm text-red-600 inline-flex items-center gap-1">
+                    <XCircle size={16} /> {configTestMsg || '连接失败'}
+                  </span>
+                )}
               </div>
             </>
           )}

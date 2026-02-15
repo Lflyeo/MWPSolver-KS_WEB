@@ -60,9 +60,12 @@ export interface AdminSolveModelItem {
 export interface AdminUniapiConfig {
   base_url: string;
   token: string;
-  // 以下字段为可选：后端若未配置则返回 null 或省略
   model?: string | null;
+  base_url_knowledge?: string | null;
+  token_knowledge?: string | null;
   model_knowledge?: string | null;
+  base_url_semantic?: string | null;
+  token_semantic?: string | null;
   model_semantic?: string | null;
 }
 
@@ -121,7 +124,11 @@ export function adminUniapiConfigUpdate(body: {
   base_url?: string;
   token?: string;
   model?: string | null;
+  base_url_knowledge?: string | null;
+  token_knowledge?: string | null;
   model_knowledge?: string | null;
+  base_url_semantic?: string | null;
+  token_semantic?: string | null;
   model_semantic?: string | null;
 }) {
   return adminRequest<Record<string, never>>(`/admin/uniapi-config`, {
@@ -213,4 +220,27 @@ export function adminFavoritesList(params: { page?: number; pageSize?: number; k
 
 export function adminFavoriteDelete(id: string) {
   return adminRequest<Record<string, never>>(`/admin/favorites/${id}`, { method: 'DELETE' });
+}
+
+/** 模型 API 连接测试返回 data 结构 */
+export interface AdminTestResultData {
+  success: boolean;
+  durationMs?: number;
+  model?: string;
+}
+
+/** 测试解题模型 API 连接；可选传入 model_id 测试指定模型（如新增/编辑时的模型 ID） */
+export function adminTestSolve(modelId?: string) {
+  const qs = modelId?.trim() ? `?model_id=${encodeURIComponent(modelId.trim())}` : '';
+  return adminRequest<AdminTestResultData>(`/admin/test/solve${qs}`);
+}
+
+/** 测试知识点识别模型 API 连接 */
+export function adminTestKnowledge() {
+  return adminRequest<AdminTestResultData>('/admin/test/knowledge');
+}
+
+/** 测试语义情境识别模型 API 连接 */
+export function adminTestSemantic() {
+  return adminRequest<AdminTestResultData>('/admin/test/semantic');
 }

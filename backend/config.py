@@ -53,6 +53,6 @@ class Settings:
     CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     # 管理员端：密钥校验，请求头 X-Admin-Token 或 Authorization: Bearer <ADMIN_SECRET>
-    ADMIN_SECRET = os.getenv("ADMIN_SECRET", "mathpro-admin-secret-change-in-production")
+    ADMIN_SECRET = os.getenv("ADMIN_SECRET", "MWPSolver-KS-admin-secret-change-in-production")
 
 settings = Settings()

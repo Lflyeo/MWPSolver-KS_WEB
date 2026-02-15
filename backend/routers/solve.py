@@ -76,8 +76,8 @@ If the problem context includes suggested knowledge points or semantic context, 
 
 def _get_uniapi_base_and_token(db: Session | None) -> tuple[str, str]:
     """
-    获取 UniAPI 的 Base URL 与 Token。
-    优先从 system_settings 表读取，若未配置或查询失败则回退到环境变量。
+    获取解题模型用的 UniAPI Base URL 与 Token。
+    优先从 system_settings 表读取 UNIAPI_BASE_URL、UNIAPI_TOKEN，未配置则回退到环境变量。
     """
     base_url = settings.UNIAPI_BASE_URL
     token = settings.UNIAPI_TOKEN
@@ -95,7 +95,54 @@ def _get_uniapi_base_and_token(db: Session | None) -> tuple[str, str]:
             elif row.key == "UNIAPI_TOKEN" and row.value:
                 token = row.value.strip()
     except Exception:
-        # 表不存在或出错时直接回退到环境变量
+        pass
+    return base_url, token
+
+
+def _get_uniapi_base_and_token_knowledge(db: Session | None) -> tuple[str, str]:
+    """
+    获取知识点识别模型用的 Base URL 与 Token。
+    若配置了 UNIAPI_BASE_URL_KNOWLEDGE、UNIAPI_TOKEN_KNOWLEDGE 则使用，否则回退到解题配置。
+    """
+    base_url, token = _get_uniapi_base_and_token(db)
+    if not db:
+        return base_url, token
+    try:
+        rows = (
+            db.query(SystemSetting)
+            .filter(SystemSetting.key.in_(["UNIAPI_BASE_URL_KNOWLEDGE", "UNIAPI_TOKEN_KNOWLEDGE"]))
+            .all()
+        )
+        for row in rows:
+            if row.key == "UNIAPI_BASE_URL_KNOWLEDGE" and row.value and row.value.strip():
+                base_url = row.value.strip()
+            elif row.key == "UNIAPI_TOKEN_KNOWLEDGE" and row.value and row.value.strip():
+                token = row.value.strip()
+    except Exception:
+        pass
+    return base_url, token
+
+
+def _get_uniapi_base_and_token_semantic(db: Session | None) -> tuple[str, str]:
+    """
+    获取语义情境识别模型用的 Base URL 与 Token。
+    若配置了 UNIAPI_BASE_URL_SEMANTIC、UNIAPI_TOKEN_SEMANTIC 则使用，否则回退到解题配置。
+    """
+    base_url, token = _get_uniapi_base_and_token(db)
+    if not db:
+        return base_url, token
+    try:
+        rows = (
+            db.query(SystemSetting)
+            .filter(SystemSetting.key.in_(["UNIAPI_BASE_URL_SEMANTIC", "UNIAPI_TOKEN_SEMANTIC"]))
+            .all()
+        )
+        for row in rows:
+            if row.key == "UNIAPI_BASE_URL_SEMANTIC" and row.value and row.value.strip():
+                base_url = row.value.strip()
+            elif row.key == "UNIAPI_TOKEN_SEMANTIC" and row.value and row.value.strip():
+                token = row.value.strip()
+    except Exception:
         pass
     return base_url, token
 
@@ -244,12 +291,13 @@ async def analyze_question(
     """
     仅做题目分析：识别知识点与语义情境，供前端流式展示工作流时先调用。
     """
-    base_url, token = _get_uniapi_base_and_token(db)
+    base_url_k, token_k = _get_uniapi_base_and_token_knowledge(db)
+    base_url_s, token_s = _get_uniapi_base_and_token_semantic(db)
     model_k, model_s = _get_model_knowledge_and_semantic(db)
-    if not (token and token.strip()):
+    if not (token_k and token_k.strip()) or not (token_s and token_s.strip()):
         return AnalyzeResponse(
             errCode=400,
-            errMsg="请联系管理员在后台配置模型接口。",
+            errMsg="请联系管理员在后台配置模型接口（解题或知识点/语义接口）。",
             data={},
         )
     question = (body.question or "").strip()
@@ -260,8 +308,8 @@ async def analyze_question(
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             knowledge_points, semantic_contexts = await asyncio.gather(
-                _extract_knowledge_points(client, question, base_url, token, model_k),
-                _extract_semantic_contexts(client, question, base_url, token, model_s),
+                _extract_knowledge_points(client, question, base_url_k, token_k, model_k),
+                _extract_semantic_contexts(client, question, base_url_s, token_s, model_s),
             )
     except Exception as e:
         return AnalyzeResponse(errCode=500, errMsg=f"分析失败: {str(e)}", data={})
@@ -303,10 +351,12 @@ async def solve_question(
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             if not knowledge_points and not semantic_contexts:
+                base_url_k, token_k = _get_uniapi_base_and_token_knowledge(db)
+                base_url_s, token_s = _get_uniapi_base_and_token_semantic(db)
                 model_k, model_s = _get_model_knowledge_and_semantic(db)
                 knowledge_points, semantic_contexts = await asyncio.gather(
-                    _extract_knowledge_points(client, question, base_url, token, model_k),
-                    _extract_semantic_contexts(client, question, base_url, token, model_s),
+                    _extract_knowledge_points(client, question, base_url_k, token_k, model_k),
+                    _extract_semantic_contexts(client, question, base_url_s, token_s, model_s),
                 )
             # 构建增强 prompt 并调用解题模型（优先使用请求中的 model）
             user_message = _build_enhanced_user_message(question, knowledge_points, semantic_contexts)
