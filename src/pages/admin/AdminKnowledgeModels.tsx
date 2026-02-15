@@ -137,6 +137,17 @@ export default function AdminKnowledgeModels() {
                 </p>
               </div>
               <div className="flex justify-end items-center gap-2 flex-wrap">
+                {configTest === 'ok' && (
+                  <span className="text-sm text-emerald-600 inline-flex items-center gap-1">
+                    <CheckCircle size={16} /> 连接正常
+                    {configTestMsg && <span className="text-slate-500">({configTestMsg})</span>}
+                  </span>
+                )}
+                {configTest === 'fail' && (
+                  <span className="text-sm text-red-600 inline-flex items-center gap-1">
+                    <XCircle size={16} /> {configTestMsg || '连接失败'}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={handleTestConnect}
@@ -163,17 +174,6 @@ export default function AdminKnowledgeModels() {
                 >
                   {configSaving ? '保存中...' : '保存接口配置'}
                 </button>
-                {configTest === 'ok' && (
-                  <span className="text-sm text-emerald-600 inline-flex items-center gap-1">
-                    <CheckCircle size={16} /> 连接正常
-                    {configTestMsg && <span className="text-slate-500">({configTestMsg})</span>}
-                  </span>
-                )}
-                {configTest === 'fail' && (
-                  <span className="text-sm text-red-600 inline-flex items-center gap-1">
-                    <XCircle size={16} /> {configTestMsg || '连接失败'}
-                  </span>
-                )}
               </div>
             </>
           )}
