@@ -44,3 +44,9 @@ class RecordRemoveResponse(BaseModel):
     errCode: int = 0
     errMsg: str = "success"
     data: dict = Field(default_factory=dict)
+
+
+class RecordStatsResponse(BaseModel):
+    errCode: int = 0
+    errMsg: str = "success"
+    data: dict = Field(default_factory=dict)  # {"total": int, "daysOfLearning": int}

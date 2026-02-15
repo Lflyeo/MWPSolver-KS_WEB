@@ -32,6 +32,15 @@ export interface RecordSaveResponse {
   data: { id: string };
 }
 
+export interface RecordStats {
+  total: number;
+  daysOfLearning: number;
+}
+
+export function recordsStats(): Promise<ApiResult<RecordStats> & { data: RecordStats }> {
+  return apiGet<RecordStats>('/records/stats') as Promise<ApiResult<RecordStats> & { data: RecordStats }>;
+}
+
 export function recordsList(params: {
   page?: number;
   pageSize?: number;

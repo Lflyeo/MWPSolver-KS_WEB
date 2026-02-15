@@ -4,7 +4,7 @@ import { Edit, History, Heart, HelpCircle, MessageCircle, LogOut, ChevronRight, 
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
-import { recordsList } from '@/services/records';
+import { recordsList, recordsStats } from '@/services/records';
 import { favoritesList } from '@/services/favorites';
 import { updateProfile, getStoredToken, setStoredAuth, uploadAvatar } from '@/services/auth';
 import { getAssetUrl } from '@/lib/api';
@@ -43,12 +43,15 @@ export default function MyPage() {
     Promise.all([
       recordsList({ page: 1, pageSize: 1 }),
       favoritesList({ page: 1, pageSize: 1 }),
-    ]).then(([recordsRes, favoritesRes]) => {
+      recordsStats(),
+    ]).then(([recordsRes, favoritesRes, statsRes]) => {
       const problemTotal = (recordsRes as { total?: number }).total ?? 0;
       const favoriteTotal = (favoritesRes as { total?: number }).total ?? 0;
+      const daysOfLearning = statsRes?.data?.daysOfLearning ?? 0;
       setUserInfo((prev) => ({
         ...prev,
         stats: { problemCount: problemTotal, favoriteCount: favoriteTotal },
+        daysOfLearning,
       }));
     }).catch(() => {});
   }, []);

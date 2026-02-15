@@ -14,6 +14,7 @@ from schemas.record import (
     RecordListResponse,
     RecordDetailApiResponse,
     RecordRemoveResponse,
+    RecordStatsResponse,
     RecordResponse,
     RecordDetailResponse,
     KnowledgePoint
@@ -65,6 +66,40 @@ def save_record(
             errMsg=f"保存失败: {error_msg}",
             data={}
         )
+
+@router.get("/stats", response_model=RecordStatsResponse)
+def get_record_stats(
+    db: Session = Depends(get_db),
+    current_user_id: Optional[str] = Depends(get_current_user_optional),
+):
+    """
+    获取当前用户的解题统计：总条数、有做题的不同天数（学习天数）。
+    未登录时统计未关联用户的记录。
+    """
+    try:
+        query = db.query(SolutionRecord)
+        if current_user_id is not None:
+            query = query.filter(
+                (SolutionRecord.user_id == current_user_id) | (SolutionRecord.user_id.is_(None))
+            )
+        else:
+            query = query.filter(SolutionRecord.user_id.is_(None))
+        total = query.count()
+        # 有做题记录的不同天数：按 created_at 的日期去重计数
+        days_query = query.with_entities(func.date(SolutionRecord.created_at)).distinct()
+        days_of_learning = days_query.count()
+        return RecordStatsResponse(
+            errCode=0,
+            errMsg="success",
+            data={"total": total, "daysOfLearning": days_of_learning},
+        )
+    except Exception as e:
+        return RecordStatsResponse(
+            errCode=500,
+            errMsg=f"查询失败: {str(e)}",
+            data={"total": 0, "daysOfLearning": 0},
+        )
+
 
 @router.get("/list", response_model=RecordListResponse)
 def get_record_list(
